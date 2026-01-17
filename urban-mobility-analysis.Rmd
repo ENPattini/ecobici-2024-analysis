@@ -1,0 +1,726 @@
+---
+title: "Urban Mobility in Buenos Aires: Analysis with R & Tableau (Ecobici 2024)"
+author: "Emilio Nahuel Pattini"
+date: "2026-01-16"
+
+output: 
+  html_document: 
+    theme: readable
+    toc: true
+    toc_float: true
+    code_folding: hide
+    number_sections: true
+    highlight: tango
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,              
+  warning = FALSE,          
+  message = FALSE,          
+  cache = TRUE,             
+  fig.align = "center",     
+  fig.width = 10,           
+  fig.height = 6            
+)
+
+library(tidyverse)      # For dplyr, ggplot2, etc.
+library(lubridate)      # For dates and hours
+library(scales)         # For comma and percent_format
+library(leaflet)        # Interactive maps
+library(leaflet.extras) # For addHeatmap
+library(here)           # Safe and portable paths
+```
+
+## Project Overview & Business Case
+
+This project analyzes full-year 2024 trip data from Buenos Aires' public bike-sharing system, **Ecobici**, to uncover usage patterns, peak demand, and opportunities for enhancing sustainable urban mobility.
+
+As cities globally adopt greener transport, understanding bike-sharing behaviour is key to optimizing station placement, fleet management, and reducing congestion and emissions.
+
+Using the most recent complete dataset (~3.56 million trips), this analysis delivers actionable insights for smart city planning and sustainable mobility strategies worldwide.
+
+
+**Key Objectives:**
+
+- Identify peak hours, days, and seasonal patterns in bike usage.
+
+- Map the most popular origin and destination stations and neighborhoods.
+
+- Explore trip durations and user demographics (where available).
+
+- Provide data-driven recommendations for system improvements.
+
+This reproducible report demonstrates skills in data cleaning, exploratory analysis, visualization, and business storytelling using R and Tableau.
+
+
+## Data Sources
+
+This analysis uses official open data from the Government of Buenos Aires.
+
+1. **Ecobici Trips 2024**
+- File: `ecobici_recorridos_realizados_2024.csv`
+- Source: https://data.buenosaires.gob.ar/dataset/bicicletas-publicas
+- Size: ~3.56 million rows (complete year 2024)
+- Key columns (after renaming to English):  
+     - `trip_id`: Unique trip ID  
+     - `duration_seconds`: Trip duration (seconds)  
+     - `start_datetime` / `end_datetime`: Start and end times  
+     - `origin_station_id` / `origin_station_name`: Origin station  
+     - `origin_longitude` / `origin_latitude`: Origin coordinates  
+     - `destination_station_id` / `destination_station_name`: Destination station  
+     - `destination_longitude` / `destination_latitude`: Destination coordinates  
+     - `user_id`, `bike_model`, `gender`
+
+2. **Ecobici Stations (New System)**
+- File: `estaciones_ecobici_nuevo_sistema.csv`
+- Source: https://data.buenosaires.gob.ar/dataset/estaciones-bicicletas-publicas
+- Note: Downloaded but not used due to complete mismatch in station IDs (0% successful join). The trips dataset already includes comprehensive station names and coordinates for every trip, ensuring full coverage.
+
+**Data Quality Note**  
+An attempt to join neighborhood, commune, and placement information from the stations file failed (0% match). The analysis relies entirely on the built-in station names and coordinates from the trips file. Neighborhood-level insights can be added in future updates with a synced stations dataset.
+
+All data is public and open. 2025 data is not yet fully available as of January 2026. Column names have been standardized to English for clarity and international readability.
+
+
+## Data Loading & Preparation
+
+The raw Ecobici trips data (2024) is loaded quietly. Original column names are in Spanish, as provided by the open data portal.
+
+```{r load-quietly, include=FALSE, cache=TRUE}
+
+# Load file in spanish quetly (no output shown)
+
+trips <- read_csv("data/raw/ecobici_recorridos_realizados_2024.csv",
+                  col_types = cols(
+                    fecha_origen_recorrido = col_datetime(),
+                    fecha_destino_recorrido = col_datetime()
+                  ))
+```
+
+
+## Data Cleaning, Renaming & Feature Engineering
+
+
+In this step I:
+
+- Rename all columns to English for consistency and international readability.
+- Clean and normalize station names.
+- Create new derived features (duration in minutes, start hour, weekday, weekend flag, month).
+- Filter out invalid or outlier trips (e.g., trips shorter than 1 minute, longer than 24 hours, or missing key values).
+
+After cleaning, I display the structure and basic statistics of the final dataset.
+
+```{r clean, cache=TRUE}
+
+trips_clean <- trips %>%
+  # Rename columns to English
+  rename(
+    trip_id                    = id_recorrido,
+    duration_seconds           = duracion_recorrido,
+    start_datetime             = fecha_origen_recorrido,
+    origin_station_id          = id_estacion_origen,
+    origin_station_name        = nombre_estacion_origen,
+    origin_station_address     = direccion_estacion_origen,
+    origin_longitude           = long_estacion_origen,
+    origin_latitude            = lat_estacion_origen,
+    end_datetime               = fecha_destino_recorrido,
+    destination_station_id     = id_estacion_destino,
+    destination_station_name   = nombre_estacion_destino,
+    destination_station_address = direccion_estacion_destino,
+    destination_longitude      = long_estacion_destino,
+    destination_latitude       = lat_estacion_destino,
+    user_id                    = id_usuario,
+    bike_model                 = modelo_bicicleta,
+    gender                     = genero
+  ) %>%
+  # Clean and normalize station names
+  mutate(
+    # Remove initial numbers + spaces/dash
+    origin_station_name = str_trim(str_remove(origin_station_name, r"(^\d+\s*-?\s*)")),
+    origin_station_name = str_to_title(origin_station_name),
+    # Fix Roman numerals
+    origin_station_name = str_replace_all(origin_station_name, "\\bIi\\b", "II"),
+    origin_station_name = str_replace_all(origin_station_name, "\\bIii\\b", "III"),
+    origin_station_name = str_replace_all(origin_station_name, "\\bIv\\b", "IV"),
+    # Same for destination
+    destination_station_name = str_trim(str_remove(destination_station_name, r"(^\d+\s*-?\s*)")),
+    destination_station_name = str_to_title(destination_station_name),
+    destination_station_name = str_replace_all(destination_station_name, "\\bIi\\b", "II"),
+    destination_station_name = str_replace_all(destination_station_name, "\\bIii\\b", "III"),
+    destination_station_name = str_replace_all(destination_station_name, "\\bIv\\b", "IV")
+  ) %>%
+  # Create new time-based features
+  mutate(
+    duration_minutes = duration_seconds / 60,
+    hour_start       = hour(start_datetime),
+    weekday          = wday(start_datetime, label = TRUE, abbr = TRUE, locale = "en_US.UTF-8"),
+    day_type         = ifelse(weekday %in% c("Sat", "Sun"), "Weekend", "Weekday"),
+    month            = month(start_datetime, label = TRUE, abbr = FALSE, locale = "en_US.UTF-8")
+  ) %>%
+  # Filter invalid trips
+  filter(
+    duration_seconds >= 60 & duration_seconds <= 86400,
+    !is.na(start_datetime), !is.na(end_datetime),
+    !is.na(origin_station_id), !is.na(destination_station_id)
+  )
+
+# Show glimpse
+glimpse(trips_clean)
+
+# Summary stats
+summary(trips_clean$duration_minutes)
+
+```
+
+**Key Results After Cleaning**
+
+- The final dataset contains **3,234,209 valid trips** (after removing invalid records).
+
+
+- Trip durations in minutes have a median of ~16.1 minutes and an average of ~21.7 minutes, which is typical for urban bike-sharing (short commutes with some longer rides).
+
+- Most trips are between ~10 and 26 minutes (between 1st and 3rd quartile).
+
+
+**Data Reduction Summary**
+
+| Stage              | Number of Trips | % of Original |
+|--------------------|-----------------|---------------|
+| Original (raw)     | 3,559,284       | 100%          |
+| After cleaning     | 3,234,209       | ~90.8%        |
+| Removed (invalid)  | ~325,075        | ~9.1%         |
+
+This cleaning process removed approximately 325,000 invalid or outlier records (~9% of the original data), which is normal and expected in large-scale public datasets like this one. The remaining data is clean, consistent, and ready for deeper analysis.
+
+
+## Exploratoy Data Analysis (EDA)
+
+
+### Peak Hours of Usage
+
+This bar chart shows trips started by hour of the day (0–23), highlighting daily usage patterns and rush hours.
+
+```{r eda-peak-hours, fig.width=10, fig.height=6}
+
+trips_clean %>%
+  count(hour_start) %>%
+  ggplot(aes(x = factor(hour_start), y = n)) + 
+  geom_bar(stat = "identity", fill = "steelblue", color = "white") +
+  labs(title = "Number of Trips by Hour of Day (2024)", 
+       subtitle = "Clear morning and evening commute peaks",
+       x = "Hour of Day (0-23)",
+       y = "Number of Trips") +
+  scale_y_continuous(labels = comma) +
+  theme_minimal(base_size = 14) +
+  theme(
+        axis.text.x = element_text(angle = 0, vjust = 0.5),
+        axis.title.x = element_text(margin = margin(t = 25)),
+        axis.title.y = element_text(margin = margin(r = 25)),
+        plot.title = element_text(face = "bold", size = 16, margin = margin(b = 15)),
+        plot.subtitle = element_text(size = 12, margin = margin(b = 15)))
+
+```
+
+**Key Insights**  
+
+- Evening peak (16–18 hs) dominates with **271,500–308,297 trips per hour** — strong commuting home pattern.  
+
+- Secondary morning peak (7–9 AM): **117,583–147,119 trips** — entry commute.  
+
+- Midday (12–15 hs) steady at **172,710–220,351 trips** — mix of errands and leisure.
+
+
+**Potential Recommendations**  
+
+- Increase bike availability during evening peak (16–18 hs) to meet highest demand.  
+
+- Explore incentives for returning bikes in high-demand periods.
+
+
+
+### Top 10 Most Popular Origin Stations
+
+This horizontal bar chart shows the 10 most used origin stations in 2024 (cleaned names), revealing high-demand departure points.
+
+```{r eda-top-stations, fig.width=10, fig.height=6}
+
+trips_clean %>%
+  count(origin_station_name) %>%
+  top_n(10, n) %>%
+  mutate(origin_station_name = fct_reorder(origin_station_name, n)) %>%
+  ggplot(aes(x = n, y = origin_station_name)) +
+  geom_bar(stat = "identity", fill = "darkorange", color = "white") +
+  geom_text(aes(label = comma(n)), hjust = -0.1, size = 3.5, color = "black") +
+  labs(title = "Top 10 Origin Stations by Number of Trips (2024)",
+       subtitle = "Stations with highest departure demand",
+       x = "Number of trips",
+       y = "Origin Station Name") +
+  scale_x_continuous(labels = comma, expand = expansion(mult = c(0, 0.1))) +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.y = element_text(size = 10),
+        axis.title.x = element_text(margin = margin(t = 25)),
+        axis.title.y = element_text(margin = margin(r = 25)),
+        plot.title = element_text(face = "bold", size = 16, margin = margin(b = 15)),
+        plot.subtitle = element_text(size = 12, margin = margin(b = 15))
+  )
+  
+
+```
+
+**Key Insights**  
+
+- Top station: **Constitución** (35,051 trips), followed by **Pacifico** (34,119) and **Plaza De La Shoá** (32,473).  
+
+- The top 10 stations account for approximately 8.9% of all trips — showing concentrated demand in a few locations.
+
+- Many top stations align with transport hubs or central areas, supporting commuting focus.
+
+
+**Potential Recommendations** 
+
+- Prioritize bike supply and rebalancing near top origin stations (e.g., Constitución, Pacifico) during peak hours.  
+
+- Consider incentives for returning bikes to these busy departure points.
+
+
+**Note on Analysis Focus**  
+
+This analysis prioritizes **origin stations** as the key indicator of departure demand (where bikes are needed most).  
+Destination stations reflect arrival patterns and can be explored in future analyses for full trip flows or net bike movement.
+
+
+
+### Average Daily Trips: Weekday vs Weekend (Normalized)
+
+This bar chart shows the average number of trips per day on weekdays vs weekends (normalized by unique days to account for weekdays having ~2.5× more days).
+
+```{r eda-weekday-weekend, fig.width=10, fig.height=6}
+
+trips_clean %>%
+  group_by(day_type) %>%
+  summarise(
+    total_trips = n(),
+    num_days = n_distinct(as.Date(start_datetime)),
+    avg_trips_per_day = total_trips/num_days
+  ) %>%
+  ggplot(aes(x = day_type, y = avg_trips_per_day, fill = day_type)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  geom_text(aes(label = comma(round(avg_trips_per_day))), vjust = -0.5, size = 5, color = "black") +
+  scale_fill_manual(values = c("Weekday" = "steelblue", "Weekend" = "darkorange")) +
+  labs(title = "Average trips per Day: Weekday vs Weekend (2024)",
+       subtitle = "Normalized by number of unique days in each category",
+       x = "",
+       y = "Average Trips per Day") +
+  scale_y_continuous(labels = comma) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none",
+        plot.title = element_text(face = "bold", size = 16, margin = margin(b = 15)),
+        plot.subtitle = element_text(size = 12, margin = margin(b = 15)),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(margin = margin(r = 25)),
+        )
+
+```
+
+**Key Insights**  
+
+- Weekday average is significantly higher than weekend, confirming **daily commuting** as the primary use case.  
+
+- Weekend usage is lower but still substantial, suggesting some **recreational or leisure activity** on Saturdays and Sundays.  
+
+- The weekday-to-weekend ratio (~2.6:1 per day) reinforces the commuting pattern seen in peak hours analysis.
+
+
+**Potential Recommendations**  
+
+- Prioritize bike availability and rebalancing on weekdays during peak hours.  
+
+- Explore weekend promotions to boost recreational use.
+
+
+
+### Spatial Heatmaps of Trip Origins and Destinations
+
+These interactive heatmaps visualize the geographic distribution of trip **origins** (blue) and **destinations** (red) in Buenos Aires (2024 sample).
+
+
+#### Morning Origins Heatmap (6–11 hs)
+```{r eda-morning-origins, fig.width=10, fig.height=6}
+
+morning_origins <- trips_clean %>% filter(hour_start >= 6 & hour_start <= 11)
+
+leaflet(morning_origins %>% sample_n(10000)) %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  addHeatmap(
+    lng = ~origin_longitude,
+    lat = ~origin_latitude,
+    radius = 10,
+    blur = 20,
+    max = 0.05,
+    gradient = c("white", "lightblue", "blue", "darkblue")
+  ) %>%
+  setView(lng = -58.45, lat = -34.60, zoom = 12) %>%
+  addControl(html = "<h4>Morning Origins (6–11 AM)</h4><p>Blue = high density</p>", position = "topright")
+```
+
+
+#### Evening Destinations Heatmap (15–20 hs)
+```{r eda-evening-destinations, fig.width=10, fig.height=6}
+
+evening_destinations <- trips_clean %>% filter(hour_start >= 15 & hour_start <= 20)
+
+leaflet(evening_destinations %>% sample_n(10000)) %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  addHeatmap(
+    lng = ~destination_longitude,
+    lat = ~destination_latitude,
+    radius = 10,
+    blur = 20,
+    max = 0.05,
+    gradient = c("white", "yellow", "orange", "red", "darkred")
+  ) %>%
+  setView(lng = -58.45, lat = -34.60, zoom = 12) %>%
+  addControl(html = "<h4>Evening Destinations (15–20 hs)</h4><p>Red = high density</p>", position = "topright")
+```
+
+**Key Insights – Commuting Flows: Morning Origins vs Evening Destinations**
+
+- Morning origins (blue) show high concentration in central and northern areas (e.g., Microcentro, Palermo, Recoleta), while evening destinations (red) maintain high density in the center but with more dispersion across the city. 
+
+- This pattern indicates a **commuting flow** where people start trips in central/residential areas in the morning and return to more dispersed residential zones in the evening.
+
+- The strong central saturation in both periods suggests that the core of the city acts as a major hub for both departures and arrivals.
+
+
+**Potential Recommendations**
+
+- Prioritize bike availability in **central high-density clusters** during morning departures and evening arrivals to meet persistent demand in the center.
+
+- Use dynamic rebalancing to redistribute excess bikes from the center (where they accumulate during the day) to more dispersed residential areas in the evening, ensuring availability for return trips.
+
+
+**Note on sample**  
+
+A random sample of 10,000 trips was used for interactive performance; analysis of the full dataset shows identical spatial patterns.
+
+
+### Trip Duration Analysis
+
+This boxplot shows the distribution of trip durations in minutes by day type, revealing typical usage lengths.
+
+```{r eda-duration-by-day, fig.width=8, fig.height=6}
+
+trips_clean %>%
+  ggplot(aes(x = day_type, y = duration_minutes, fill = day_type)) +
+  geom_boxplot(outlier.shape = NA) +
+  scale_fill_manual(values = c("Weekday" = "steelblue", "Weekend" = "darkorange")) +
+  labs(title = "Trip Duration Distribution by Day Type",
+       subtitle = "Boxplot of duration in minutes (outliers removed for clarity)",
+       x = "",
+       y = "Duration (minutes)",
+       caption = "Boxplot explanation: The box encloses the middle 50% of trips (from 25% to 75%).\nThe thick line inside is the median (50%). Whiskers show the typical range (excluding extreme outliers).") +
+  scale_y_continuous(limits = c(0, 60)) +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.title.y = element_text(margin = margin(r = 25), size = 13),
+        axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 10),
+        plot.title = element_text(face = "bold", size = 15, margin = margin(b = 15)),
+        plot.subtitle = element_text(size = 12, margin = margin(b = 15)),
+        plot.caption = element_text(hjust = 0, size = 10, color = "gray50")) +
+  # Add labels
+  # Q1
+  stat_summary(fun = quantile, fun.args = list(probs = 0.25), geom = "text",
+               aes(label = "Q1 (25%)"), hjust = -0.4, vjust = 1.1, size = 3.5, color = "black") +
+  # Median
+  stat_summary(fun = median, geom = "text",
+               aes(label = "Median (50%)"), hjust = -0.1, vjust = -0.5, size = 4, color = "black", fontface = "bold") +
+  # Q3
+  stat_summary(fun = quantile, fun.args = list(probs = 0.75), geom = "text",
+               aes(label = "Q3 (75%)"), hjust = -0.4, vjust = -0.5, size = 3.5, color = "black")
+
+```
+**Key Insights**  
+
+- Trip durations are generally short, with a median of ~16.1 minutes and an average of ~21.7 minutes — typical for urban bike-sharing (quick commutes or errands).
+
+- Weekday trips tend to be **slightly shorter** (more focused commuting), while weekend trips show **greater variation** (likely including leisure or longer recreational rides).
+
+- Most trips (75% or more) are under ~26 minutes, indicating efficient, short-distance use.
+
+
+**Potential Recommendations**  
+
+- Leverage the existing free 30-minute limit on weekdays by promoting short, efficient trips (e.g., campaigns encouraging commuting under 30 minutes to avoid charges).  
+
+- Explore extending the free time or number of trips on weekends to boost recreational usage, as weekend trips show more variation and potential for longer leisure rides.
+
+
+
+### Usage by Gender
+
+This bar chart shows the percentage of trips by gender, providing demographic insights.
+
+```{r eda-gender, fig.width=8, fig.height=6}
+
+trips_clean %>%
+  filter(!is.na(gender)) %>% # Remove NA
+  count(gender) %>%
+  mutate(pct = n / sum(n) * 100) %>%
+  ggplot(aes(x = gender, y = pct, fill = gender)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(pct, 1), "%")), vjust = -0.5, size = 4) +
+  scale_fill_manual(values = c("MALE" = "steelblue", "FEMALE" = "darkorange", "OTHER" = "gray")) +
+  labs(title = "Percentage of Trips by Gender (2024)",
+       x = "Gender",
+       y = "Percentage (%)") +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.title.y = element_text(margin = margin(r = 25), size = 13),
+        axis.title.x = element_text(margin = margin(t = 25), size = 13),
+        axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 10),
+        plot.title = element_text(face = "bold", size = 15, margin = margin(b = 15)),
+        plot.subtitle = element_text(size = 12, margin = margin(b = 15)))
+
+```
+
+**Key Insights – Usage by Gender**
+
+- Male users account for the majority of trips (~60.8%), while female users represent ~31.6%.  
+
+- A small percentage (~7.3%) are classified as "Other", with negligible missing values (0.3%).  
+
+- The gender imbalance suggests opportunities to increase female participation through targeted campaigns, safety improvements, or inclusive marketing.
+
+
+**Potential Recommendations**  
+
+- Launch initiatives to boost female usage (e.g., women-only events, safety features, or promotions aimed at female commuters).  
+
+- Monitor gender trends over time to assess the impact of inclusivity efforts.
+
+
+
+### Trips by Month (Seasonality)
+
+This bar chart shows the total number of trips per month in 2024, revealing seasonal patterns in usage.
+
+```{r eda-trips-by-month, fig.width=10, fig.height=6}
+
+trips_clean %>%
+  count(month) %>%
+  mutate(month = factor(month, levels = month.name)) %>%  # Sort chronologically
+  ggplot(aes(x = month, y = n, fill = n)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = comma(n)), vjust = -0.5, size = 3.5, color = "black") +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +
+  labs(title = "Total Trips by Month (2024)",
+       subtitle = "Seasonal usage patterns throughout the year",
+       x = "Month",
+       y = "Number of Trips") +
+  scale_y_continuous(labels = comma) +
+  theme_minimal() +
+  theme(
+    axis.title.y = element_text(margin = margin(r = 25), size = 13),
+    axis.title.x = element_text(margin = margin(t = 25), size = 13),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 10),    
+    plot.title = element_text(face = "bold", size = 15, margin = margin(b = 15)),
+    plot.subtitle = element_text(size = 12, margin = margin(b = 15))
+  )
+
+```
+
+**Key Insights**  
+
+- Usage peaks in the **late spring and early summer** (September–December), with the highest counts in **October** (335,005 trips) and **November** (322,054 trips).  
+
+- The lowest usage occurs in **winter** (June–August), with the minimum in **July** (215,163 trips), likely due to colder weather in Buenos Aires.  
+
+- Overall, there is a clear seasonal pattern: higher ridership during warmer months (late spring/early summer) and lower in winter, typical for outdoor urban bike-sharing in the Southern Hemisphere.
+
+
+**Potential Recommendations**  
+
+- Increase bike supply and marketing efforts during the **peak season** (September–December) to capitalize on higher demand.
+
+- Consider reduced operations or targeted incentives in winter months (June–August) to maintain engagement during lower ridership periods.
+
+
+
+### Net flow by Station (Origins vs Destinations)
+
+This horizontal bar chart shows the net flow of bikes per station (destinations minus origins, that is, arrivals minus departures) in 2024.
+
+Positive values (blue) indicate bike excess (more arrivals, that is, destinations).
+
+Negative values (orange) indicate bike shortage (more departures, that is, origins).
+
+Stations are ordered from highest positive net flow (top) to lowest negative (bottom).
+
+
+```{r eda-net-flow, fig.width=12, fig.height=8}
+
+# Count departures by station
+departures <- trips_clean %>%
+  count(origin_station_name, name = "departures")
+
+# Count arrivals by station
+arrivals <- trips_clean %>%
+  count(destination_station_name, name = "arrivals")
+
+# Join and calculate net_flow
+net_flow <- departures %>%
+  full_join(arrivals, by = c("origin_station_name" = "destination_station_name")) %>%
+  mutate(
+    departures = coalesce(departures, 0),
+    arrivals = coalesce(arrivals, 0),
+    net_flow = arrivals - departures,
+    station_clean = fct_reorder(origin_station_name, net_flow, .desc = FALSE) # Sort desc by real net_flow
+  ) %>%
+  filter(abs(net_flow) > 1000) %>%
+  top_n(20, abs(net_flow))
+
+# Net flow bar
+net_flow %>%
+  ggplot(aes(x = net_flow, y = station_clean, fill = net_flow > 0)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = comma(net_flow)), hjust = ifelse(net_flow > 0, -0.1, 1.1), size = 3.5) +
+  scale_fill_manual(values = c("TRUE" = "steelblue", "FALSE" = "darkorange")) +
+  labs(title = "Net Bike Flow by Station (Top 20 Extremes)",
+       subtitle = "Negative = excess departures (need addition), Positive = excess arrivals (need removal)",
+       x = "Net Flow (Arrivals - Departures)",
+       y = "Station Name") +
+  scale_x_continuous(labels = comma) +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.title.y = element_text(margin = margin(r = 25), size = 16),
+        axis.title.x = element_text(margin = margin(t = 25), size = 16),
+        axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 10),
+        plot.title = element_text(face = "bold", size = 18, margin = margin(b = 15)),
+        plot.subtitle = element_text(size = 14, margin = margin(b = 15)))
+              
+```
+
+
+**Key Insights**  
+
+- Stations like **Juan Manuel De Blanes** (+3,056) and **Parque Lezama** (+2,871) have the highest positive net flow (excess arrivals, that is, destinations) — they accumulate bikes and need removal.  
+
+- Stations like **Cerrito** (-2,064) and **Aduana** (-1,549) have the most negative net flow (excess departures, that is, origins) — they lose bikes and need addition.  
+
+- The top extremes highlight stations that require frequent rebalancing to maintain availability.
+
+
+**Potential Recommendations**  
+
+- Prioritize rebalancing for stations with positive net flow (remove excess bikes).  
+
+- Prioritize rebalancing for stations with negative net flow (add bikes).  
+
+- Use predictive models to anticipate daily net flow based on time of day and historical patterns.
+
+
+
+## Interactive Dashboard in Tableau
+
+To make the analysis more interactive and explorable, I created a Tableau dashboard with the cleaned dataset.
+
+**Dashboard Highlights**  
+
+- Origins and Destinations heatmaps (interactive with filters for Hour of Day, Day Type, Month, and Gender).  
+- Peak hours bar chart.  
+- Trips by month bar chart.  
+- Top 10 origin stations.  
+- Trip duration boxplot by day type.  
+- Usage by gender bar chart.
+
+**Link to the full interactive dashboard** 
+
+[View the Ecobici 2024 Dashboard on Tableau Public](https://public.tableau.com/views/Ecobici2024-InteractiveUrbanBike-SharingInsights/Ecobici2024-UrbanBike-SharingInsights?:language=es-ES&publish=yes&:sid=&:redirect=auth&:display_count=n&:origin=viz_share_link)
+
+**Screenshot**
+
+![Ecobici 2024 Dashboard](images/dashboard_screenshot.png)
+
+```{r export-for-tableau, include=FALSE, echo=FALSE}
+# Export cleaned dataset
+
+# Create "processed" folder if it doesn't exist
+dir.create(here("data/processed"), showWarnings = FALSE, recursive = TRUE)
+
+write_csv(trips_clean, here("data/processed/trips_clean_2024.csv"))
+
+# Output to console success message
+cat("Dataset exported successfully to:", here("data/processed/trips_clean_2024.csv"), "\n")
+```
+
+
+
+## Conclusion
+
+This project analyzed over 3.2 million Ecobici trips from 2024 to uncover key usage patterns in Buenos Aires' public bike-sharing system.
+
+**Main Findings**  
+
+- Strong commuting focus: Evening peak (16–18 hs, up to 308k trips/hour) and secondary morning peak (7–10 AM).
+
+- Weekday average ~10,724 trips/day vs ~4,081 on weekends (ratio ~2.6:1).  
+
+- Top origin stations (Constitución 35k, Pacífico 34k) and spatial heatmaps show concentrated demand in central areas (Microcentro, Palermo, Recoleta).  
+
+- Morning origins cluster in residential/central zones, evening destinations disperse, confirming bidirectional commuting.  
+
+- Trip durations: median ~16.1 min, average ~21.7 min — most under 30 min. 
+
+- Gender distribution: Male ~60.8%, Female ~31.6%.  
+
+- Seasonal peaks in late spring/early summer (October 335k), lowest in winter (July 215k).  
+
+- Net flow extremes (e.g., Juan Manuel De Blanes +3,056, Cerrito -2,064) highlight rebalancing needs.
+
+
+**Lessons Learned**  
+
+- Open data sources can have inconsistencies (e.g., station ID mismatches) — relying on built-in coordinates ensured complete coverage without external dependencies.  
+
+- Normalization techniques (such as per-day averages) are critical to avoid misleading conclusions when comparing groups with unequal sizes.  
+
+- Sampling (10,000 trips) strikes a practical balance between interactive performance and analytical accuracy in large-scale visualizations.  
+
+- Consistent terminology (e.g., origins/destinations instead of mixing with departures/arrivals) and clear explanations significantly improve readability and stakeholder understanding.
+
+
+**Next Steps**  
+
+- Incorporate real-time data for dynamic rebalancing. 
+
+- Explore user demographics (age, gender) and predictive modeling for demand forecasting.  
+
+- Expand to 2025 data when available.
+
+
+This reproducible report demonstrates skills in R (tidyverse, leaflet), data cleaning, EDA, visualization, interactive dashboards (Tableau), and business insights — ready for data analyst roles.
+
+
+**View the full rendered report online** (with interactive heatmaps):  
+
+[Open Ecobici 2024 Report on my website](https://www.emilionahuelpattini.com/projects/ecobici-2024/urban-mobility-analysis.html)  
+(Interactive version with zoom, pan, and tooltips — no download needed.)
+
+
+**Interactive Dashboard** 
+
+Explore the full dataset interactively in Tableau Public:  
+[View the Ecobici 2024 Dashboard](https://public.tableau.com/views/Ecobici2024-InteractiveUrbanBike-SharingInsights/Ecobici2024-UrbanBike-SharingInsights?:language=es-ES&publish=yes&:sid=&:redirect=auth&:display_count=n&:origin=viz_share_link)
+
+
+**Download PDF Report**  
+
+For a printable version:  
+[Download PDF](https://www.emilionahuelpattini.com/projects/ecobici-2024/urban-mobility-analysis.pdf)  
+(Full report with all visuals and insights — 12 pages)

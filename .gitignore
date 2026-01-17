@@ -1,0 +1,12 @@
+# RStudio temporales y caché
+.Rhistory
+.RData
+.Ruserdata
+
+# Carpetas de caché de knitr
+*_cache/
+
+# Archivos grandes o innecesarios
+*.Rproj
+*.Rproj.user/
+.Rproj.user

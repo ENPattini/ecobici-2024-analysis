@@ -1,0 +1,10 @@
+# Force language detection in GitHub
+
+*.html linguist-detectable=false
+*.htm linguist-detectable=false
+*.css linguist-detectable=false
+*.js linguist-detectable=false
+
+*.R linguist-detectable=true
+*.r linguist-detectable=true
+*.Rmd linguist-detectable=true
