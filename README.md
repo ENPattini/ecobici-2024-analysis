@@ -26,7 +26,7 @@ Explore the full dataset interactively in Tableau Public:
 ## Full Rendered Report
 
 **Complete HTML Report** (with interactive heatmaps):  
-[Open the Report Online](https://www.emilionahuelpattini.com/projects/ecobici-2024/urban-mobility-analysis.html)  
+[Open the Report Online](https://www.emilionahuelpattini.com/en/data/data-analysis/projects/ecobici-2024/urban-mobility-analysis.html)  
 (Interactive version with zoom, pan, and tooltips. No download needed.)
 
 **Alternative (offline download)**:  
@@ -34,7 +34,7 @@ Download the ZIP of the repo and open `outputs/urban-mobility-analysis.html` (re
 
 **Complete PDF Report** (printable version): 
 
-[Download PDF Report](https://www.emilionahuelpattini.com/projects/ecobici-2024/urban-mobility-analysis.pdf)  
+[Download PDF Report](https://www.emilionahuelpattini.com/en/data/data-analysis/projects/ecobici-2024/urban-mobility-analysis.pdf)  
 (Full report with all visuals and insights — static version, ~12 pages)
 
 
