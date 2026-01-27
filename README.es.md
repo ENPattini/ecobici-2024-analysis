@@ -24,13 +24,13 @@ Explora el dataset completo de forma interactiva en Tableau Public:
 ## Reporte HTML Completo
 
 **Reporte HTML Completo** (con heatmaps interactivos):  
-[Abrir el Reporte Online](https://www.emilionahuelpattini.com/projects/ecobici-2024/urban-mobility-analysis.html) (Versión interactiva con zoom, pan y tooltips. Sin necesidad de descarga.)  
+[Abrir el Reporte Online](https://www.emilionahuelpattini.com/es/data/data-analysis/projects/ecobici-2024/urban-mobility-analysis.html) (Versión interactiva con zoom, pan y tooltips. Sin necesidad de descarga.)  
 
 **Alternativa (descarga offline)**: Descarga el ZIP del repositorio y abre `outputs/urban-mobility-analysis.html` (requiere la carpeta `outputs/urban-mobility-analysis_files/`).
 
 **Reporte PDF Completo** (versión imprimible):
 
-[Descargar Reporte PDF](https://www.emilionahuelpattini.com/projects/ecobici-2024/urban-mobility-analysis.pdf)  
+[Descargar Reporte PDF](https://www.emilionahuelpattini.com/es/data/data-analysis/projects/ecobici-2024/urban-mobility-analysis.pdf)  
 (Reporte completo con todos los visuales e insights — versión estática, ~12 páginas)
 
 
