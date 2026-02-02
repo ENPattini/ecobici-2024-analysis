@@ -1,5 +1,11 @@
 # Mobilità Urbana a Buenos Aires: Analisi con R e Tableau (Ecobici 2024)
 
+*Disponibile in: 🇬🇧 English → [README.md](README.md) | 🇪🇸 Español → [README.es.md](README.es.md) | 🇮🇹 Italiano (questo file)*
+
+![R](https://img.shields.io/badge/R-4.3-blue?logo=r&logoColor=white)
+![RMarkdown](https://img.shields.io/badge/RMarkdown-Reporting-2c3e50?logo=rmarkdown&logoColor=white)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+
 Questo progetto analizza oltre 3.2 milioni di viaggi del sistema di bike-sharing pubblico Ecobici di Buenos Aires nel 2024 per scoprire pattern di utilizzo, picchi di domanda, stazioni popolari e opportunità per migliorare la mobilità urbana sostenibile.
 
 
