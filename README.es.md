@@ -1,5 +1,11 @@
 # Movilidad Urbana en Buenos Aires: Análisis con R y Tableau (Ecobici 2024)
 
+*Disponible en: 🇬🇧 English → [README.md](README.md) | 🇪🇸 Español (este archivo) | 🇮🇹 Italiano → [README.it.md](README.it.md)*
+
+![R](https://img.shields.io/badge/R-4.3-blue?logo=r&logoColor=white)
+![RMarkdown](https://img.shields.io/badge/RMarkdown-Reporting-2c3e50?logo=rmarkdown&logoColor=white)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+
 Este proyecto analiza más de 3.2 millones de viajes del sistema público de bicicletas Ecobici de Buenos Aires en 2024 para descubrir patrones de uso, demanda máxima, estaciones populares y oportunidades para mejorar la movilidad urbana sostenible.
 
 
