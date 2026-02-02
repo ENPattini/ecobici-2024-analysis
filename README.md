@@ -2,6 +2,10 @@
 
 *Available in: 🇬🇧 English (this file) | 🇪🇸 Español → [README.es.md](README.es.md) | 🇮🇹 Italiano → [README.it.md](README.it.md)*
 
+![R](https://img.shields.io/badge/R-4.3-blue?logo=r&logoColor=white)
+![RMarkdown](https://img.shields.io/badge/RMarkdown-Reporting-2c3e50?logo=rmarkdown&logoColor=white)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+
 This project analyzes over 3.2 million public bike trips from Buenos Aires' Ecobici system in 2024 to uncover usage patterns, peak demand, popular stations, and opportunities for sustainable urban mobility.
 
 
